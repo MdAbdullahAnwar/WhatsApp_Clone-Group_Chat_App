@@ -206,3 +206,4 @@ module.exports = {
   checkAuthenticated,
   getAllUsers,
 };
+

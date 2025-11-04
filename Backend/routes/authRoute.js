@@ -15,3 +15,4 @@ router.get('/check-auth',authMiddleware,authController.checkAuthenticated);
 router.get('/users',authMiddleware,authController.getAllUsers);
 
 module.exports = router;
+
