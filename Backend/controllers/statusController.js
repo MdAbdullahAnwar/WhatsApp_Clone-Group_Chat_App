@@ -45,14 +45,13 @@ exports.createStatus = async (req, res) => {
     const status = new Status({
       user: userId,
       content: mediaUrl || content,
-      imageOrVideoUrl,
       contentType: finalContentType,
-      messageStatus,
+      expiresAt
     });
 
     await status.save();
 
-    const populatedStatus = await Message.findOne(status?._id)
+    const populatedStatus = await Status.findOne(status?._id)
       .populate("user", "username profilePicture")
       .populate("viewers", "username profilePicture");
 
