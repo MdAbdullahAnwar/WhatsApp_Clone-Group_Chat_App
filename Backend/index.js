@@ -6,11 +6,20 @@ const connectDb = require("./config/dbConnect");
 const bodyParser = require("body-parser");
 const authRoute = require("./routes/authRoute");
 const chatRoute = require("./routes/chatRoute");
+const http = require('http');
+const initializeSocket = require("./services/socketService");
 
 dotenv.config();
 
 const PORT = process.env.PORT;
 const app = express();
+
+const corsOption = {
+  origin:process.env.FRONTEND_URL,
+  credentials:true
+}
+
+app.use(cors(corsOption))
 
 // Middlewares
 app.use(express.json());
@@ -20,9 +29,22 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Database Connection
 connectDb();
 
+// create server
+const server = http.createServer(app);
+
+const io = initializeSocket(server);
+
+// apply cokkie middleware before routes
+app.use((req,res,next)=>{
+  req.io = io;
+  req.socketUserMap = io.socketUserMap;
+  next();
+})
+
 // Routes
 app.use('/api/auth', authRoute);
 app.use('/api/chat', chatRoute);
+app.use('/api/status', statusRoute);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
