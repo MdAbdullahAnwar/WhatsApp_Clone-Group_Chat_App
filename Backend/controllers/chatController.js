@@ -28,7 +28,7 @@ exports.sendMessage = async (req, res) => {
     if (file) {
       const uploadFile = await uploadFileToCloudinary(file);
 
-      if (!uploadFile.secure_url) {
+      if (!uploadFile?.secure_url) {
         return response(res, 400, "Failed to upload media");
       }
 
