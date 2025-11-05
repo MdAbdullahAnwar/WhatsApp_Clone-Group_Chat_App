@@ -3,7 +3,6 @@ const Status = require("../models/Status");
 const response = require("../utils/responseHandler");
 const Message = require("../models/Message");
 
-
 // Post Status
 
 exports.createStatus = async (req, res) => {
@@ -46,7 +45,7 @@ exports.createStatus = async (req, res) => {
       user: userId,
       content: mediaUrl || content,
       contentType: finalContentType,
-      expiresAt
+      expiresAt,
     });
 
     await status.save();
@@ -54,6 +53,16 @@ exports.createStatus = async (req, res) => {
     const populatedStatus = await Status.findOne(status?._id)
       .populate("user", "username profilePicture")
       .populate("viewers", "username profilePicture");
+
+    //Emit socket event
+    if (req.io && req.socketUserMap) {
+      //Broadcast to all connected users except the creator
+      for (const [ connectedUserId, socketId ] of req.socketUserMap) {
+        if (connectedUserId !== userId) {
+          req.io.to(socketId).emit("new_status", populatedStatus);
+        }
+      }
+    }
 
     return response(res, 201, "Status created successfully", populatedStatus);
   } catch (error) {
@@ -80,7 +89,6 @@ exports.getStatuses = async (req, res) => {
   }
 };
 
-
 // View Status by Users
 
 exports.viewStatus = async (req, res) => {
@@ -96,28 +104,46 @@ exports.viewStatus = async (req, res) => {
       status.viewers.push(userId);
       await status.save();
 
-      const updatedStatus = await Status.findById(statusId)
+      const updateStatus = await Status.findById(statusId)
         .populate("user", "username profilePicture")
         .populate("viewers", "username profilePicture");
-    }
-    else{
-        console.log('user already viewed the status');
+
+      //Emit socket event
+      if (req.io && req.socketUserMap) {
+        //Broadcast to all connected users except the creator
+        const statusOwnerSocketId = req.socketUserMap.get(
+          status.user._id.toString()
+        );
+
+        if (statusOwnerSocketId) {
+          const viewData = {
+            statusId,
+            viewerId: userId,
+            totalViewers: updateStatus.viewers.length,
+            viewers: updateStatus.viewers,
+          };
+
+          res.io.to(statusOwnerSocketId).emit("status_viewed", viewData);
+        } else {
+          console.log("status owner not connected");
+        }
+      }
+    } else {
+      console.log("user already viewed the status");
     }
 
-    return response(res,200,'Status Viewed Successfully');
+    return response(res, 200, "Status Viewed Successfully");
   } catch (error) {
     console.error(error);
     return response(res, 500, "Internal Server Error");
   }
 };
 
-
 // Delete Status
 
 exports.deleteStatus = async (req, res) => {
-
   const { statusId } = req.params;
-  const userId = req.user.userId;  
+  const userId = req.user.userId;
 
   try {
     const status = await Status.findById(statusId);
@@ -127,14 +153,19 @@ exports.deleteStatus = async (req, res) => {
     }
 
     if (status.user.toString() !== userId) {
-      return response(
-        res,
-        403,
-        "You are not authorized to delete this status"
-      );
+      return response(res, 403, "You are not authorized to delete this status");
     }
 
     await status.deleteOne();
+
+    //Emit socket event
+    if (req.io && req.socketUserMap) {
+      for (const [ connectedUserId, socketId ] of req.socketUserMap) {
+        if (connectedUserId !== userId) {
+          req.io.to(socketId).emit("status_deleted", statusId);
+        }
+      }
+    }
 
     return response(res, 200, "Status deleted successfully");
   } catch (error) {

@@ -70,6 +70,17 @@ exports.sendMessage = async (req, res) => {
       .populate("sender", "username profilePicture")
       .populate("receiver", "username profilePicture");
 
+    //Emit socket event for realtime
+    if (req.io && req.socketUserMap) {
+      const receiverSocketId = req.socketUserMap.get(receiverId);
+
+      if (receiverSocketId) {
+        req.io.to(receiverSocketId).emit("receive_message", populatedMesssage);
+        message.messageStatus = "delivered";
+        await message.save();
+      }
+    }
+
     return response(res, 201, "Message sent successfully", populatedMesssage);
   } catch (error) {
     console.error(error);
@@ -150,49 +161,74 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-
-exports.markAsRead = async (req, res) => { 
-  const {messageIds} = req.body;
+exports.markAsRead = async (req, res) => {
+  const { messageIds } = req.body;
   const userId = req.user.userId;
 
-  try{
-    let messages = await Message.find({ 
-      _id: { $in: messageIds }, 
-      receiver: userId, 
-    })
+  try {
+    let messages = await Message.find({
+      _id: { $in: messageIds },
+      receiver: userId,
+    });
 
     await Message.updateMany(
       { _id: { $in: messageIds }, receiver: userId },
-      { $set: { messageStatus: "read" }}
+      { $set: { messageStatus: "read" } }
     );
 
+    //notify to original sender
+    if (req.io && req.socketUserMap) {
+      for(const message of messages){
+        const senderSocketId = req.socketUserMap.get(message.sender.toString());
+        if(senderSocketId){
+          const updatedMessage = {
+            _id:message._id,
+            messageStatus:"read",
+          };
+          req.io.to(senderSocketId).emit("message_read", updatedMessage);
+          await message.save();
+        }
+      }
+    }
+
     return response(res, 200, "Messages marked as read successfully", messages);
-  }catch(error){
+  } catch (error) {
     console.error(error);
     return response(res, 500, "Internal Server Error");
   }
 };
 
-
-exports.deleteMessage =  async(req,res) => {
-  const {messageId} = req.params;
+exports.deleteMessage = async (req, res) => {
+  const { messageId } = req.params;
   const userId = req.user.userId;
-  try{
+  try {
     const message = await Message.findById(messageId);
 
-    if(!message){
+    if (!message) {
       return response(res, 404, "Message not found");
-    };
-    
-    if(message.sender.toString() !== userId){
-      return response(res, 403, "You are not authorized to delete this message");
+    }
+
+    if (message.sender.toString() !== userId) {
+      return response(
+        res,
+        403,
+        "You are not authorized to delete this message"
+      );
     }
 
     await message.deleteOne();
+
+    //Emit socket event
+    if (req.io && req.socketUserMap) {
+      const receiverSocketId = req.socketUserMap.get(message.receiver.toString());
+      if(receiverSocketId){
+        req.io.to(receiverSocketId).emit("message_deleted",messageId);
+      }
+    }
 
     return response(res, 200, "Message deleted successfully");
   } catch (error) {
     console.error(error);
     return response(res, 500, "Internal Server Error");
   }
-}
+};
